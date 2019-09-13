@@ -22,3 +22,5 @@ refine by rating
 ```python
 python cvae/cvae.py --dir data --data music -a 1 -b 1 -m 30 -N 20 --layer 100 20 --load 1 --rating --gpu
 ```
+
+If you want to test on CPU, simply remove --gpu.
