@@ -3,7 +3,6 @@ from torch.nn import functional
 from torch import nn
 from utils import trace
 
-
 class VAE(nn.Module):
     def __init__(self, args):
         super(VAE, self).__init__()

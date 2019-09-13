@@ -3,24 +3,24 @@ import argparse
 import torch
 from scipy import io
 from torch import optim
-from torch.nn import functional
+from utils import metric_map, metric_recall, sort2query, csr2test, Evaluator
 from torch.utils.data import DataLoader
-
-from utils import Evaluator
-from utils import sort2query, csr2test
+from tqdm import tqdm
 from vae import VAE
+import numpy as np
+from sklearn.preprocessing import normalize
 
 
 def Guassian_loss(recon_x, x):
-    recon_x = functional.sigmoid(recon_x)
+    recon_x = torch.sigmoid(recon_x)
     weights = x * args.alpha + (1 - x)
     loss = x - recon_x
-    loss = torch.sum(weights * loss * loss)
+    loss = torch.sum(weights * (loss ** 2))
     return loss
 
 
 def BCE_loss(recon_x, x):
-    recon_x = functional.sigmoid(recon_x)
+    recon_x = torch.sigmoid(recon_x)
     eps = 1e-8
     loss = -torch.sum(args.alpha * torch.log(recon_x + eps) * x + torch.log(1 - recon_x + eps) * (1 - x))
     return loss
@@ -33,28 +33,61 @@ def regularization(mu, logvar):
 def train(epoch):
     model.train()
     loss_value = 0
-    for batch_idx, data in enumerate(train_loader):
-
+    for batch_idx, data in enumerate(tqdm(train_loader, unit='epoch')):
         data = data.to(args.device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
-
         loss = loss_function(recon_batch, data) + regularization(mu, logvar) * args.beta
         loss.backward()
         loss_value += loss.item()
         optimizer.step()
-        if args.log != 0 and batch_idx % args.log == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader),
-                       loss.item() / len(data)))
+        # if args.log != 0 and batch_idx % args.log == 0:
+        #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+        #         epoch, batch_idx * len(data), len(train_loader.dataset),
+        #                100. * batch_idx / len(train_loader),
+        #                loss.item() / len(data)))
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, loss_value / len(train_loader.dataset)))
+    print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, loss_value / len(train_loader.dataset)))
+
+
+def evaluate(split='valid'):
+    y_true = eval(split + '_data')
+    # Ttensor = eval(split + '_tensor')
+    model.eval()
+    y_score, _, _ = model(train_tensor)
+    y_score.detach_()
+    y_score = y_score.squeeze(0)
+    y_score[train_data.row, train_data.col] = 0
+    _, rec_items = torch.topk(y_score, args.N, dim=1)
+    # y_pred = torch.gather(Ttensor, 1, rec_items).cpu().numpy()
+    run = sort2query(rec_items[:, 0:args.N])
+    test = csr2test(y_true.tocsr())
+    evaluator = Evaluator({'recall', 'map_cut'})
+    evaluator.evaluate(run, test)
+    result = evaluator.show(
+        ['recall_5', 'recall_10', 'recall_15', 'recall_20', 'map_cut_5', 'map_cut_10', 'map_cut_15', 'map_cut_20'])
+    print(result)
+
+
+# def evaluate(split='valid'):
+#     # Ttensor = torch.from_numpy(T.A.astype('float32'))
+#     # test_loader = DataLoader(Ttensor, args.batch, shuffle=True)
+#     y_true = eval(split + '_data')
+#     Ttensor = eval(split + '_tensor')
+#     model.eval()
+#     y_score, _, _ = model(train_tensor)
+#     y_score.detach_()
+#     y_score = y_score.squeeze(0)
+#     y_score[train_data.row, train_data.col] = 0
+#     y_score, rec_items = torch.topk(y_score, args.N, dim=1)
+#     y_pred = torch.gather(Ttensor, 1, rec_items).cpu().numpy()
+#     # y_score = y_score.cpu().numpy()
+#     map_res = metric_map(y_pred, y_true)
+#     recall_res = metric_recall(y_pred, y_true)
+#     print('{}: Recall@{}={}, MAP@{}={}'.format(split, args.N, np.mean(recall_res), args.N, np.mean(map_res)))
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description='Variational Auto Encoder')
     parser.add_argument('--batch', type=int, default=100, help='input batch size for training (default: 100)')
     parser.add_argument('-m', '--maxiter', type=int, default=5, help='number of epochs to train (default: 10)')
@@ -62,14 +95,12 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
     parser.add_argument('--log', type=int, default=1, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--cold', help='evaluate under cold-start setting')
-    parser.add_argument('--fold', help='specify the fold', type=int, default=1)
     parser.add_argument('--dir', help='dataset directory', default='/Users/chenyifan/jianguo/dataset')
-    parser.add_argument('-d', '--data', help='specify dataset', default='test')
+    parser.add_argument('--data', help='specify dataset', default='test')
     parser.add_argument('--layer', nargs='+', help='number of neurals in each layer', type=int, default=[20])
-    parser.add_argument('-N', help='number of recommended items', type=int, default=20)
+    parser.add_argument('-N', help='number of recommended items', type=int, default=10)
     parser.add_argument('--lr', help='learning rate', type=float, default=1e-3)
-    parser.add_argument('-a', '--alpha', help='parameter alpha', type=float, default=0)
+    parser.add_argument('-a', '--alpha', help='parameter alpha', type=float, default=1)
     parser.add_argument('-b', '--beta', help='parameter beta', type=float, default=1)
     parser.add_argument('--rating', help='feed input as rating', action='store_true')
     parser.add_argument('--save', help='save model', action='store_true')
@@ -82,14 +113,23 @@ if __name__ == "__main__":
     print('dataset directory: ' + args.dir)
     directory = args.dir + '/' + args.data
 
-    path = '{}/split/train{}.txt'.format(directory, args.fold)
+    path = '{}/split/train.txt'.format(directory)
     print('train data path: ' + path)
-    R = io.mmread(path)
-    Rtensor = R.A
-    Rtensor = torch.from_numpy(Rtensor.astype('float32')).to(args.device)
+    train_data = io.mmread(path)
+    train_tensor = torch.from_numpy(train_data.A.astype('float32')).to(args.device)
+
+    path = '{}/split/valid.txt'.format(directory)
+    valid_data = io.mmread(path)
+    # print(np.sum(valid_data, axis=1))
+    valid_tensor = torch.from_numpy(valid_data.A.astype('float32')).to(args.device)
+
+    path = '{}/split/test.txt'.format(directory)
+    test_data = io.mmread(path)
+    test_tensor = torch.from_numpy(test_data.A.astype('float32')).to(args.device)
+
     if args.rating:
-        args.d = R.shape[1]
-        train_loader = DataLoader(Rtensor, args.batch, shuffle=True)
+        args.d = train_data.shape[1]
+        train_loader = DataLoader(train_tensor, args.batch, shuffle=True)
         loss_function = BCE_loss
     else:
         path = directory + '/feature.txt'
@@ -102,13 +142,6 @@ if __name__ == "__main__":
         train_loader = DataLoader(X, args.batch, shuffle=True)
         loss_function = Guassian_loss
 
-    testfile = 'valid'
-    path = '{}/split/{}{}.txt'.format(directory, testfile, args.fold)
-    print('test file path: {}'.format(path))
-    T = io.mmread(path)
-    Ttensor = torch.from_numpy(T.A.astype('float32')).to(args.device)
-    test_loader = DataLoader(Ttensor, args.batch, shuffle=True)
-
     model = VAE(args).to(args.device)
     if args.load > 0:
         name = 'cvae' if args.load == 2 else 'fvae'
@@ -120,31 +153,31 @@ if __name__ == "__main__":
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
+    evaluate()
     for epoch in range(1, args.maxiter + 1):
         train(epoch)
-        # test()
+        evaluate()
+        evaluate('test')
+    # test()
 
-    model.eval()
-    score, _, _ = model(Rtensor)
-    score = score.squeeze(0)
-    score[R.row, R.col] = 0
-    _, idx = torch.sort(score, 1, True)
+    # _, idx = torch.sort(score, 1, True)
 
-    run = sort2query(idx[:, 0:args.N])
-    test = csr2test(T.tocsr())
-    evaluator = Evaluator({'recall'})
-    evaluator.evaluate(run, test)
-    result = evaluator.show(
-        ['recall_5', 'recall_10', 'recall_15', 'recall_20'])
-    print(result)
-    line = 'cVAE\t{}\t{}\t{}\t{}\t0'.format(args.data, args.alpha, args.beta, len(args.layer))
-    for _, value in result.items():
-        line += '\t{:.5f}'.format(value)
-    line += '\r\n'
-    file = open('result', 'a')
-    file.write(line)
-    file.close()
+    # y_score = idx[:, :args.N]
+    # test = T.tocsr()
+    # evaluator = Evaluator({'recall'})
 
+    # evaluator.evaluate(run, test)
+    # result = evaluator.show(
+    #     ['recall_5', 'recall_10', 'recall_15', 'recall_20'])
+    # print(result)
+    # line = 'cVAE\t{}\t{}\t{}\t{}\t0'.format(args.data, args.alpha, args.beta, len(args.layer))
+    # for _, value in result.items():
+    #     line += '\t{:.5f}'.format(value)
+    # line += '\r\n'
+    # file = open('result', 'a')
+    # file.write(line)
+    # file.close()
+    #
     if args.save:
         name = 'cvae' if args.rating else 'fvae'
         path = directory + '/model/' + name

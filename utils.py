@@ -1,5 +1,7 @@
+import numpy as np
 import pytrec_eval
 import torch
+
 
 class Evaluator:
     def __init__(self, metrics):
@@ -44,3 +46,48 @@ def trace(A=None, B=None):
     else:
         val = torch.sum(A * B)
     return val
+
+
+# def metric_dcg(pred, test, cut):
+#     r = np.array([x in test for x in pred])
+#     r[1:] = r[1:] / np.log2(np.arange(2, r.size + 1))
+#     res = [(r[0] + np.sum(r[1:c])) / c for c in cut]
+#     return res
+
+def metric_precision(y_pred):
+    N = y_pred.shape[1]
+    return np.sum(y_pred, axis=1) / N
+
+
+def metric_map(y_pred, y_true):
+    N = y_pred.shape[1]
+    denominator = np.sum(y_true, axis=1)
+    denominator[denominator > N] = N
+    prec = []
+    for k in range(1, N + 1):
+        prec.append(np.sum(y_pred[:, :k], axis=1) / N)
+    prec = np.stack(prec, axis=1)
+    return np.sum(prec * y_pred, axis=1) / denominator
+
+
+def metric_recall(y_pred, y_true):
+    pred = np.sum(y_pred, axis=1)
+    total = np.sum(y_true, axis=1)
+    return pred / total
+
+
+# def metric_recall(pred, test, cut):
+#     r = np.array([x in test for x in pred])
+#     res = [np.sum(r[:c] / len(test)) for c in cut]
+#     return res
+
+
+if __name__ == '__main__':
+    a = np.array([1, 5, 3, 2])
+    b = np.array([7, 3, 2, 4])
+    print(np.stack([a, b], axis=1))
+
+# import torch
+#
+
+#
