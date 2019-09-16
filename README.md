@@ -2,6 +2,27 @@
 - pytorch implementation
 - sample data for running
 
+Please kindly cite our article if you use this repository
+
+```
+@inproceedings{DBLP:conf/recsys/ChenR18,
+  author    = {Yifan Chen and
+               Maarten de Rijke},
+  title     = {A Collective Variational Autoencoder for Top-N Recommendation with
+               Side Information},
+  booktitle = {Proceedings of the 3rd Workshop on Deep Learning for Recommender Systems,
+               DLRS@RecSys 2018, Vancouver, BC, Canada, October 6, 2018},
+  pages     = {3--9},
+  year      = {2018},
+  crossref  = {DBLP:conf/recsys/2018dlrs},
+  url       = {https://doi.org/10.1145/3270323.3270326},
+  doi       = {10.1145/3270323.3270326},
+  timestamp = {Wed, 21 Nov 2018 12:44:01 +0100},
+  biburl    = {https://dblp.org/rec/bib/conf/recsys/ChenR18},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
+
 ## Requirement
 1. python >= 3.6
 1. pytorch >= 1.0
